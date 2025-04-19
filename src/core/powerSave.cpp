@@ -2,8 +2,10 @@
 #include "display.h"
 #include "settings.h"
 
-/* Check if it's time to put the device to sleep */
+
 #define SCREEN_OFF_DELAY 5000
+#define FADE_OUT_STEPS 10
+#define FADE_OUT_DELAY 30  
 
 void checkPowerSaveTime() {
     if (bruceConfig.dimmerSet == 0) return;
@@ -15,14 +17,28 @@ void checkPowerSaveTime() {
     } else if (elapsed >= ((bruceConfig.dimmerSet * 1000) + SCREEN_OFF_DELAY) && !isScreenOff &&
                !isSleeping) {
         isScreenOff = true;
-        turnOffDisplay();
+
+        // Smooth fade-out effect
+        for (int brightness = 100; brightness >= 0; brightness -= (100 / FADE_OUT_STEPS)) {
+            setBrightness(brightness, false);
+            delay(FADE_OUT_DELAY);
+        }
+
+        turnOffDisplay();  // After fading out, turn off the display
     }
 }
 
-/* Put device on sleep mode */
+
 void sleepModeOn() {
     isSleeping = true;
     setCpuFrequencyMhz(80);
+
+    // Smooth fade-out effect before going to sleep
+    for (int brightness = 100; brightness >= 0; brightness -= (100 / FADE_OUT_STEPS)) {
+        setBrightness(brightness, false);  // Gradually reduce brightness
+        delay(FADE_OUT_DELAY);  // Wait before the next reduction
+    }
+
     turnOffDisplay();
     disableCore0WDT();
     disableCore1WDT();
@@ -30,7 +46,6 @@ void sleepModeOn() {
     delay(200);
 }
 
-/* Wake up device */
 void sleepModeOff() {
     isSleeping = false;
     setCpuFrequencyMhz(240);
