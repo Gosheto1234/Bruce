@@ -87,7 +87,11 @@ int deauthFileIndex = 0;
 int rawFileIndex = 0;
 std::map<uint64_t, String> beaconSsidCache;
 const size_t MAX_CAPTURE_SSID_LEN = 32;
-const size_t SNIFFER_QUEUE_DEPTH = 48;
+
+// const size_t SNIFFER_QUEUE_DEPTH = 48;
+static size_t SNIFFER_QUEUE_DEPTH = 48; // Used for when device is out of ram !!!
+static bool no_ram_left = false;
+
 std::set<uint64_t> handshakeReadyBssids;
 portMUX_TYPE handshakeReadyMux = portMUX_INITIALIZER_UNLOCKED;
 std::set<uint64_t> handshakeBeaconLogged;
@@ -943,6 +947,15 @@ static std::vector<String> recentSsidsOnChannel(uint8_t channel, size_t maxItems
     return out;
 }
 
+// CHECK RAM
+void check_ram(FS *Fs) {
+    if (!sniffer_prepare_storage(Fs, !isLittleFS)) {
+        no_ram_left = true;
+    } else {
+        no_ram_left = false;
+    }
+}
+
 //===== SETUP =====//
 void sniffer_setup() {
     FS *Fs;
@@ -967,10 +980,31 @@ void sniffer_setup() {
 
     rawFileIndex = 0;
     deauthFileIndex = 0;
-    if (!sniffer_prepare_storage(Fs, !isLittleFS)) {
+    // maybe delete and use only check_ram ?
+
+    /*if (!sniffer_prepare_storage(Fs, !isLittleFS)) {
         displayError("Sniffer queue error", true);
-        return;
+        out_of_ram = true;
+        // return;
     }
+    */
+    // maybe make into function ?
+    check_ram(Fs);
+    if (no_ram_left) {
+    for (SNIFFER_QUEUE_DEPTH = 48; SNIFFER_QUEUE_DEPTH > 1; SNIFFER_QUEUE_DEPTH--) {
+
+        if (snifferQueue) {
+            vQueueDelete(snifferQueue);
+            snifferQueue = NULL;
+        }
+
+        check_ram(Fs);
+
+        if (!no_ram_left) {
+            break;
+        }
+    }
+}
 
     SnifferMode startMode = sniffer_full_mode_available() ? SnifferMode::Full : SnifferMode::HandshakesOnly;
     sniffer_set_mode(startMode);
