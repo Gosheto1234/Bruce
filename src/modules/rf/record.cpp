@@ -1,6 +1,7 @@
 #include "record.h"
 #include "rf_utils.h"
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
+
 static bool
 record_rmt_rx_done_callback(rmt_channel_t *channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
     BaseType_t high_task_wakeup = pdFALSE;
@@ -9,9 +10,11 @@ record_rmt_rx_done_callback(rmt_channel_t *channel, const rmt_rx_done_event_data
     xQueueSendFromISR(receive_queue, edata, &high_task_wakeup);
     return high_task_wakeup == pdTRUE;
 }
+
 float phase = 0.0;
 float lastPhase = 2 * PI;
 unsigned long lastAnimationUpdate = 0;
+
 void sinewave_animation() {
     if (millis() - lastAnimationUpdate < 10) return;
 
@@ -19,12 +22,18 @@ void sinewave_animation() {
 
     int centerY = (tftHeight / 2) + 20;
     int amplitude = (tftHeight / 2) - 40;
+    if (amplitude < 8) amplitude = 8;
     int sinewaveWidth = 5;
 
+    // Draw vertical strips: erase previous (using lastPhase) then draw current
     for (int x = 20; x < tftWidth - 20; x++) {
-        int lastY = centerY + amplitude * sin(lastPhase + x * 0.05);
-        int y = centerY + amplitude * sin(phase + x * 0.05);
+        int lastY = centerY + (int)(amplitude * sin(lastPhase + x * 0.05));
+        int y = centerY + (int)(amplitude * sin(phase + x * 0.05));
+
+        // erase previous stripe (draw background color over previous position)
         tft.drawFastVLine(x, lastY, sinewaveWidth, bruceConfig.bgColor);
+
+        // draw current stripe
         tft.drawFastVLine(x, y, sinewaveWidth, bruceConfig.priColor);
     }
 
@@ -62,20 +71,38 @@ void rf_raw_record_draw(RawRecordingStatus status) {
         tft.setTextColor(getColorVariation(bruceConfig.priColor), bruceConfig.bgColor);
         tft.println("   Press [OK] to stop ");
         tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        // Calculate bar dimensions
-        int centerY = (TFT_WIDTH / 2) + 20;      // Center axis for the bars
-        int maxBarHeight = (TFT_WIDTH / 2) - 50; // Maximum height of the bars
+
+        // --- Use screen HEIGHT for vertical calculations
+        int centerY = (tftHeight / 2) + 20;      // Center axis for the bars (vertical center)
+        int maxBarHeight = (tftHeight / 2) - 50; // Maximum half-height of the bars
+        if (maxBarHeight < 8) maxBarHeight = 8;
 
         // Draw the latest bar
         int rssi = status.latestRssi;
         // Normalize RSSI to bar height (RSSI values are typically negative)
         int barHeight = map(rssi, -90, -45, 1, maxBarHeight);
+        if (barHeight < 1) barHeight = 1;
+        if (barHeight > maxBarHeight) barHeight = maxBarHeight;
 
-        // Calculate bar position
-        int x = 20 + (int)(status.rssiCount * 1.35);
+        // Calculate x position and wrap/clear when we reach the right edge
+        int drawableWidth = tftWidth - 40; // left/right margins of 20
+        if (drawableWidth <= 0) drawableWidth = 1;
+        // Use a wrapping scheme so drawing is consistent across receive/replay and doesn't overflow
+        int rawXPos = (int)(status.rssiCount * 1.35f);
+        int x = 20 + (rawXPos % drawableWidth);
+
         int yTop = centerY - barHeight;
 
-        // Draw the bar
+        // Clear a thin vertical slice at x (to avoid leftover pixels from previous frames)
+        // drawing background over a slightly larger area than bar ensures clean redraw
+        int clearHeight = (barHeight * 2) + 4;
+        int clearTop = centerY - barHeight - 2;
+        if (clearTop < 0) clearTop = 0;
+        if ((clearTop + clearHeight) > tftHeight) clearHeight = tftHeight - clearTop;
+
+        tft.fillRect(x, clearTop, 3, clearHeight, bruceConfig.bgColor);
+
+        // Draw the bar centered on centerY with primary color
         tft.drawFastVLine(x, yTop, barHeight * 2, bruceConfig.priColor);
     }
 }
